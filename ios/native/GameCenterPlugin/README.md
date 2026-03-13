@@ -31,6 +31,11 @@ Build output:
 - `ios/plugins/game_center_plugin/GodotGameCenter.debug.xcframework`
 - `ios/plugins/game_center_plugin/GodotGameCenter.release.xcframework`
 
+Important:
+
+- the script now emits real debug and real release xcframeworks
+- release builds must compile without `DEBUG_ENABLED`, otherwise the plugin will target the debug-only Godot method-binding ABI and fail to link against the shipped iOS release library
+
 Implementation notes:
 
 - Uses narrow GameKit imports instead of the umbrella header to avoid symbol collisions with Godot headers.

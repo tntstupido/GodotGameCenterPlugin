@@ -18,7 +18,12 @@ COMMON_GODOT_INCLUDES=(
 )
 
 rm -rf "${BUILD_DIR}"
-mkdir -p "${BUILD_DIR}/iphoneos" "${BUILD_DIR}/iphonesimulator" "${OUTPUT_DIR}"
+mkdir -p \
+	"${BUILD_DIR}/debug/iphoneos" \
+	"${BUILD_DIR}/debug/iphonesimulator" \
+	"${BUILD_DIR}/release/iphoneos" \
+	"${BUILD_DIR}/release/iphonesimulator" \
+	"${OUTPUT_DIR}"
 rm -rf "${OUTPUT_DIR}/GodotGameCenter.debug.xcframework" "${OUTPUT_DIR}/GodotGameCenter.release.xcframework"
 
 build_static_lib() {
@@ -26,12 +31,13 @@ build_static_lib() {
 	local arch="$2"
 	local slice_dir="$3"
 	local min_flag="$4"
+	local debug_define="$5"
 
 	xcrun clang++ \
 		-std=c++17 \
 		-fobjc-arc \
 		-fobjc-weak \
-		-DDEBUG_ENABLED \
+		${debug_define:+${debug_define}} \
 		-arch "${arch}" \
 		-isysroot "${sdk_path}" \
 		"${min_flag}" \
@@ -46,7 +52,7 @@ build_static_lib() {
 		-std=c++17 \
 		-fobjc-arc \
 		-fobjc-weak \
-		-DDEBUG_ENABLED \
+		${debug_define:+${debug_define}} \
 		-arch "${arch}" \
 		-isysroot "${sdk_path}" \
 		"${min_flag}" \
@@ -63,16 +69,23 @@ build_static_lib() {
 		"${slice_dir}/game_center_plugin_bootstrap.o"
 }
 
-build_static_lib "${IOS_SDK_PATH}" "arm64" "${BUILD_DIR}/iphoneos" "-miphoneos-version-min=14.0"
-build_static_lib "${SIM_SDK_PATH}" "arm64" "${BUILD_DIR}/iphonesimulator" "-mios-simulator-version-min=14.0"
+build_static_lib "${IOS_SDK_PATH}" "arm64" "${BUILD_DIR}/debug/iphoneos" "-miphoneos-version-min=14.0" "-DDEBUG_ENABLED"
+build_static_lib "${SIM_SDK_PATH}" "arm64" "${BUILD_DIR}/debug/iphonesimulator" "-mios-simulator-version-min=14.0" "-DDEBUG_ENABLED"
+build_static_lib "${IOS_SDK_PATH}" "arm64" "${BUILD_DIR}/release/iphoneos" "-miphoneos-version-min=14.0" ""
+build_static_lib "${SIM_SDK_PATH}" "arm64" "${BUILD_DIR}/release/iphonesimulator" "-mios-simulator-version-min=14.0" ""
 
 xcodebuild -create-xcframework \
-	-library "${BUILD_DIR}/iphoneos/libGodotGameCenter.a" \
+	-library "${BUILD_DIR}/debug/iphoneos/libGodotGameCenter.a" \
 	-headers "${SRC_DIR}" \
-	-library "${BUILD_DIR}/iphonesimulator/libGodotGameCenter.a" \
+	-library "${BUILD_DIR}/debug/iphonesimulator/libGodotGameCenter.a" \
 	-headers "${SRC_DIR}" \
 	-output "${OUTPUT_DIR}/GodotGameCenter.debug.xcframework"
 
-cp -R "${OUTPUT_DIR}/GodotGameCenter.debug.xcframework" "${OUTPUT_DIR}/GodotGameCenter.release.xcframework"
+xcodebuild -create-xcframework \
+	-library "${BUILD_DIR}/release/iphoneos/libGodotGameCenter.a" \
+	-headers "${SRC_DIR}" \
+	-library "${BUILD_DIR}/release/iphonesimulator/libGodotGameCenter.a" \
+	-headers "${SRC_DIR}" \
+	-output "${OUTPUT_DIR}/GodotGameCenter.release.xcframework"
 
 echo "Built xcframeworks in ${OUTPUT_DIR}"
