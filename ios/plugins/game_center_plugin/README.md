@@ -16,3 +16,9 @@ Also enable the Game Center entitlement in the iOS export preset.
 Runtime singleton:
 
 - `GodotGameCenter`
+
+Current scope:
+
+- Game Center authentication
+- leaderboard submit/load helpers
+- iCloud-backed saved-game load/save/delete helpers via `GKSavedGame`

@@ -14,16 +14,16 @@ Current scope:
 
 - iOS only
 - Game Center local-player authentication
+- iCloud-backed saved-game load/save/delete via `GKSavedGame`
 - leaderboard score submission
 - leaderboard top-score loading
 - leaderboard player-score loading
 - API shape aligned with the consuming project's existing Play Games leaderboard flow where practical
 
-Out of scope in `v0.1.0`:
+Out of scope in `v0.2.0`:
 
 - achievements
 - real-time or turn-based multiplayer
-- cloud-save replacement
 
 Current minimum iOS target:
 
@@ -48,7 +48,9 @@ Required consuming-project export settings:
 
 - enable the plugin in the iOS export preset
 - enable the Game Center entitlement in the iOS export preset
+- enable iCloud CloudDocuments entitlements for the app bundle / provisioning profile
 - configure real Game Center leaderboard identifiers in the consuming project
+- users must be signed into Game Center/iCloud for `GKSavedGame` sync to function
 
 ## Godot API
 
@@ -64,10 +66,20 @@ Methods:
 - `refreshAuthStatus()`
 - `is_signed_in() -> bool`
 - `isSignedIn() -> bool`
+- `is_cloud_available() -> bool`
+- `isCloudAvailable() -> bool`
 - `get_player_id() -> String`
 - `getPlayerId() -> String`
 - `get_player_display_name() -> String`
 - `getPlayerDisplayName() -> String`
+- `load_game(save_name: String)`
+- `loadGame(save_name: String)`
+- `save_game(save_name: String, data: String, description := "")`
+- `saveGame(save_name: String, data: String, description := "")`
+- `delete_game(save_name: String)`
+- `deleteGame(save_name: String)`
+- `delete_saved_game(save_name: String)`
+- `deleteSavedGame(save_name: String)`
 - `submit_score(leaderboard_id: String, score: int)`
 - `submitScore(leaderboard_id: String, score: int)`
 - `load_top_scores(leaderboard_id: String, time_span := "all_time", collection := "public", limit := 10, force_reload := true)`
@@ -80,6 +92,12 @@ Signals:
 - `sign_in_success(player_id, player_name)`
 - `sign_in_failed(status_code, message)`
 - `player_info_loaded(player_id, player_name)`
+- `load_game_success(save_name, data)`
+- `load_game_failed(save_name, status_code, message)`
+- `save_game_success(save_name)`
+- `save_game_failed(save_name, status_code, message)`
+- `delete_game_success(save_name)`
+- `delete_game_failed(save_name, status_code, message)`
 - `leaderboard_submit_success(leaderboard_id)`
 - `leaderboard_submit_failed(leaderboard_id, status_code, message)`
 - `leaderboard_top_scores_loaded(leaderboard_id, json)`
@@ -114,4 +132,4 @@ GODOT_HEADERS_DIR="/Users/mladen/Documents/Plugins/GodotAdMobPlugin/third_party/
 
 Current zip output:
 
-- `GodotGameCenterPlugin-v0.1.0-ios.zip`
+- `GodotGameCenterPlugin-v0.2.0-ios.zip`

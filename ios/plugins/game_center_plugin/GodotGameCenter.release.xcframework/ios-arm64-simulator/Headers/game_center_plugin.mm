@@ -4,6 +4,7 @@
 #import <GameKit/GKLeaderboardEntry.h>
 #import <GameKit/GKLocalPlayer.h>
 #import <GameKit/GKPlayer.h>
+#import <GameKit/GKSavedGame.h>
 #import <UIKit/UIKit.h>
 
 #include "core/io/json.h"
@@ -11,6 +12,12 @@
 static const char *SIGN_IN_SUCCESS_SIGNAL = "sign_in_success";
 static const char *SIGN_IN_FAILED_SIGNAL = "sign_in_failed";
 static const char *PLAYER_INFO_LOADED_SIGNAL = "player_info_loaded";
+static const char *LOAD_GAME_SUCCESS_SIGNAL = "load_game_success";
+static const char *LOAD_GAME_FAILED_SIGNAL = "load_game_failed";
+static const char *SAVE_GAME_SUCCESS_SIGNAL = "save_game_success";
+static const char *SAVE_GAME_FAILED_SIGNAL = "save_game_failed";
+static const char *DELETE_GAME_SUCCESS_SIGNAL = "delete_game_success";
+static const char *DELETE_GAME_FAILED_SIGNAL = "delete_game_failed";
 static const char *LEADERBOARD_SUBMIT_SUCCESS_SIGNAL = "leaderboard_submit_success";
 static const char *LEADERBOARD_SUBMIT_FAILED_SIGNAL = "leaderboard_submit_failed";
 static const char *LEADERBOARD_TOP_SCORES_LOADED_SIGNAL = "leaderboard_top_scores_loaded";
@@ -27,6 +34,19 @@ static String NSStringToString(NSString *value) {
 		return "";
 	}
 	return String::utf8([value UTF8String]);
+}
+
+static NSData *StringToNSData(const String &value) {
+	CharString utf8 = value.utf8();
+	return [NSData dataWithBytes:utf8.get_data() length:utf8.length()];
+}
+
+static String NSDataToString(NSData *value) {
+	if (value == nil || value.length == 0) {
+		return "";
+	}
+	NSString *string = [[NSString alloc] initWithData:value encoding:NSUTF8StringEncoding];
+	return NSStringToString(string);
 }
 
 static UIViewController *GetTopViewController() {
@@ -108,6 +128,10 @@ static Dictionary DictionaryForLeaderboardEntry(GKLeaderboardEntry *entry, NSStr
 - (BOOL)isSignedIn;
 - (NSString *)playerId;
 - (NSString *)playerName;
+- (BOOL)isCloudAvailable;
+- (void)loadGame:(NSString *)saveName;
+- (void)saveGame:(NSString *)saveName data:(NSString *)data description:(NSString *)description;
+- (void)deleteGame:(NSString *)saveName;
 - (void)submitScore:(int64_t)score leaderboardId:(NSString *)leaderboardId;
 - (void)loadTopScores:(NSString *)leaderboardId timeSpan:(NSString *)timeSpan limit:(NSInteger)limit;
 - (void)loadPlayerScore:(NSString *)leaderboardId timeSpan:(NSString *)timeSpan;
@@ -237,6 +261,86 @@ GameCenterPlugin *GameCenterPlugin::instance = nullptr;
 	return GKLocalPlayer.localPlayer.displayName ?: @"";
 }
 
+- (BOOL)isCloudAvailable {
+	return GKLocalPlayer.localPlayer.isAuthenticated;
+}
+
+- (void)loadGame:(NSString *)saveName {
+	dispatch_async(dispatch_get_main_queue(), ^{
+		if (![self isCloudAvailable]) {
+			self.plugin->notify_load_game_failed(NSStringToString(saveName), 4, "SIGN_IN_REQUIRED");
+			return;
+		}
+		[GKLocalPlayer.localPlayer fetchSavedGamesWithCompletionHandler:^(NSArray<GKSavedGame *> * _Nullable savedGames, NSError * _Nullable error) {
+			dispatch_async(dispatch_get_main_queue(), ^{
+				if (error != nil) {
+					self.plugin->notify_load_game_failed(NSStringToString(saveName), int(error.code), NSStringToString(error.localizedDescription ?: @"Saved game load failed"));
+					return;
+				}
+				GKSavedGame *matchingGame = nil;
+				for (GKSavedGame *savedGame in savedGames) {
+					if ([savedGame.name isEqualToString:saveName]) {
+						matchingGame = savedGame;
+						break;
+					}
+				}
+				if (matchingGame == nil) {
+					self.plugin->notify_load_game_success(NSStringToString(saveName), "");
+					return;
+				}
+				[matchingGame loadDataWithCompletionHandler:^(NSData * _Nullable data, NSError * _Nullable loadError) {
+					dispatch_async(dispatch_get_main_queue(), ^{
+						if (loadError != nil) {
+							self.plugin->notify_load_game_failed(NSStringToString(saveName), int(loadError.code), NSStringToString(loadError.localizedDescription ?: @"Saved game data load failed"));
+							return;
+						}
+						self.plugin->notify_load_game_success(NSStringToString(saveName), NSDataToString(data));
+					});
+				}];
+			});
+		}];
+	});
+}
+
+- (void)saveGame:(NSString *)saveName data:(NSString *)data description:(NSString *)description {
+	dispatch_async(dispatch_get_main_queue(), ^{
+		if (![self isCloudAvailable]) {
+			self.plugin->notify_save_game_failed(NSStringToString(saveName), 4, "SIGN_IN_REQUIRED");
+			return;
+		}
+		NSData *payload = StringToNSData(NSStringToString(data));
+		(void)description;
+		[GKLocalPlayer.localPlayer saveGameData:payload withName:saveName completionHandler:^(GKSavedGame * _Nullable savedGame, NSError * _Nullable error) {
+			dispatch_async(dispatch_get_main_queue(), ^{
+				if (error != nil) {
+					self.plugin->notify_save_game_failed(NSStringToString(saveName), int(error.code), NSStringToString(error.localizedDescription ?: @"Saved game save failed"));
+					return;
+				}
+				NSString *resolvedName = savedGame.name ?: saveName;
+				self.plugin->notify_save_game_success(NSStringToString(resolvedName));
+			});
+		}];
+	});
+}
+
+- (void)deleteGame:(NSString *)saveName {
+	dispatch_async(dispatch_get_main_queue(), ^{
+		if (![self isCloudAvailable]) {
+			self.plugin->notify_delete_game_failed(NSStringToString(saveName), 4, "SIGN_IN_REQUIRED");
+			return;
+		}
+		[GKLocalPlayer.localPlayer deleteSavedGamesWithName:saveName completionHandler:^(NSError * _Nullable error) {
+			dispatch_async(dispatch_get_main_queue(), ^{
+				if (error != nil) {
+					self.plugin->notify_delete_game_failed(NSStringToString(saveName), int(error.code), NSStringToString(error.localizedDescription ?: @"Saved game delete failed"));
+					return;
+				}
+				self.plugin->notify_delete_game_success(NSStringToString(saveName));
+			});
+		}];
+	});
+}
+
 - (void)submitScore:(int64_t)score leaderboardId:(NSString *)leaderboardId {
 	dispatch_async(dispatch_get_main_queue(), ^{
 		if (![self isSignedIn]) {
@@ -323,12 +427,22 @@ void GameCenterPlugin::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("refreshAuthStatus"), &GameCenterPlugin::refreshAuthStatus);
 	ClassDB::bind_method(D_METHOD("is_signed_in"), &GameCenterPlugin::is_signed_in);
 	ClassDB::bind_method(D_METHOD("isSignedIn"), &GameCenterPlugin::isSignedIn);
+	ClassDB::bind_method(D_METHOD("is_cloud_available"), &GameCenterPlugin::is_cloud_available);
+	ClassDB::bind_method(D_METHOD("isCloudAvailable"), &GameCenterPlugin::isCloudAvailable);
 	ClassDB::bind_method(D_METHOD("get_player_id"), &GameCenterPlugin::get_player_id);
 	ClassDB::bind_method(D_METHOD("getPlayerId"), &GameCenterPlugin::getPlayerId);
 	ClassDB::bind_method(D_METHOD("get_player_display_name"), &GameCenterPlugin::get_player_display_name);
 	ClassDB::bind_method(D_METHOD("getPlayerDisplayName"), &GameCenterPlugin::getPlayerDisplayName);
 	ClassDB::bind_method(D_METHOD("submit_score", "leaderboard_id", "score"), &GameCenterPlugin::submit_score);
 	ClassDB::bind_method(D_METHOD("submitScore", "leaderboard_id", "score"), &GameCenterPlugin::submitScore);
+	ClassDB::bind_method(D_METHOD("load_game", "save_name"), &GameCenterPlugin::load_game);
+	ClassDB::bind_method(D_METHOD("loadGame", "save_name"), &GameCenterPlugin::loadGame);
+	ClassDB::bind_method(D_METHOD("save_game", "save_name", "data", "description"), &GameCenterPlugin::save_game, DEFVAL(""));
+	ClassDB::bind_method(D_METHOD("saveGame", "save_name", "data", "description"), &GameCenterPlugin::saveGame, DEFVAL(""));
+	ClassDB::bind_method(D_METHOD("delete_game", "save_name"), &GameCenterPlugin::delete_game);
+	ClassDB::bind_method(D_METHOD("deleteGame", "save_name"), &GameCenterPlugin::deleteGame);
+	ClassDB::bind_method(D_METHOD("delete_saved_game", "save_name"), &GameCenterPlugin::delete_saved_game);
+	ClassDB::bind_method(D_METHOD("deleteSavedGame", "save_name"), &GameCenterPlugin::deleteSavedGame);
 	ClassDB::bind_method(D_METHOD("load_top_scores", "leaderboard_id", "time_span", "collection", "limit", "force_reload"), &GameCenterPlugin::load_top_scores, DEFVAL("all_time"), DEFVAL("public"), DEFVAL(10), DEFVAL(true));
 	ClassDB::bind_method(D_METHOD("loadTopScores", "leaderboard_id", "time_span", "collection", "limit", "force_reload"), &GameCenterPlugin::loadTopScores, DEFVAL("all_time"), DEFVAL("public"), DEFVAL(10), DEFVAL(true));
 	ClassDB::bind_method(D_METHOD("load_player_score", "leaderboard_id", "time_span", "collection", "force_reload"), &GameCenterPlugin::load_player_score, DEFVAL("all_time"), DEFVAL("public"), DEFVAL(true));
@@ -337,6 +451,12 @@ void GameCenterPlugin::_bind_methods() {
 	ADD_SIGNAL(MethodInfo(SIGN_IN_SUCCESS_SIGNAL, PropertyInfo(Variant::STRING, "player_id"), PropertyInfo(Variant::STRING, "player_name")));
 	ADD_SIGNAL(MethodInfo(SIGN_IN_FAILED_SIGNAL, PropertyInfo(Variant::INT, "status_code"), PropertyInfo(Variant::STRING, "message")));
 	ADD_SIGNAL(MethodInfo(PLAYER_INFO_LOADED_SIGNAL, PropertyInfo(Variant::STRING, "player_id"), PropertyInfo(Variant::STRING, "player_name")));
+	ADD_SIGNAL(MethodInfo(LOAD_GAME_SUCCESS_SIGNAL, PropertyInfo(Variant::STRING, "save_name"), PropertyInfo(Variant::STRING, "data")));
+	ADD_SIGNAL(MethodInfo(LOAD_GAME_FAILED_SIGNAL, PropertyInfo(Variant::STRING, "save_name"), PropertyInfo(Variant::INT, "status_code"), PropertyInfo(Variant::STRING, "message")));
+	ADD_SIGNAL(MethodInfo(SAVE_GAME_SUCCESS_SIGNAL, PropertyInfo(Variant::STRING, "save_name")));
+	ADD_SIGNAL(MethodInfo(SAVE_GAME_FAILED_SIGNAL, PropertyInfo(Variant::STRING, "save_name"), PropertyInfo(Variant::INT, "status_code"), PropertyInfo(Variant::STRING, "message")));
+	ADD_SIGNAL(MethodInfo(DELETE_GAME_SUCCESS_SIGNAL, PropertyInfo(Variant::STRING, "save_name")));
+	ADD_SIGNAL(MethodInfo(DELETE_GAME_FAILED_SIGNAL, PropertyInfo(Variant::STRING, "save_name"), PropertyInfo(Variant::INT, "status_code"), PropertyInfo(Variant::STRING, "message")));
 	ADD_SIGNAL(MethodInfo(LEADERBOARD_SUBMIT_SUCCESS_SIGNAL, PropertyInfo(Variant::STRING, "leaderboard_id")));
 	ADD_SIGNAL(MethodInfo(LEADERBOARD_SUBMIT_FAILED_SIGNAL, PropertyInfo(Variant::STRING, "leaderboard_id"), PropertyInfo(Variant::INT, "status_code"), PropertyInfo(Variant::STRING, "message")));
 	ADD_SIGNAL(MethodInfo(LEADERBOARD_TOP_SCORES_LOADED_SIGNAL, PropertyInfo(Variant::STRING, "leaderboard_id"), PropertyInfo(Variant::STRING, "json")));
@@ -385,6 +505,14 @@ bool GameCenterPlugin::isSignedIn() const {
 	return is_signed_in();
 }
 
+bool GameCenterPlugin::is_cloud_available() const {
+	return [bridge isCloudAvailable];
+}
+
+bool GameCenterPlugin::isCloudAvailable() const {
+	return is_cloud_available();
+}
+
 String GameCenterPlugin::get_player_id() const {
 	return NSStringToString([bridge playerId]);
 }
@@ -407,6 +535,38 @@ void GameCenterPlugin::submit_score(String leaderboard_id, int score) {
 
 void GameCenterPlugin::submitScore(String leaderboard_id, int score) {
 	submit_score(leaderboard_id, score);
+}
+
+void GameCenterPlugin::load_game(String save_name) {
+	[bridge loadGame:StringToNSString(save_name)];
+}
+
+void GameCenterPlugin::loadGame(String save_name) {
+	load_game(save_name);
+}
+
+void GameCenterPlugin::save_game(String save_name, String data, String description) {
+	[bridge saveGame:StringToNSString(save_name) data:StringToNSString(data) description:StringToNSString(description)];
+}
+
+void GameCenterPlugin::saveGame(String save_name, String data, String description) {
+	save_game(save_name, data, description);
+}
+
+void GameCenterPlugin::delete_game(String save_name) {
+	[bridge deleteGame:StringToNSString(save_name)];
+}
+
+void GameCenterPlugin::deleteGame(String save_name) {
+	delete_game(save_name);
+}
+
+void GameCenterPlugin::delete_saved_game(String save_name) {
+	delete_game(save_name);
+}
+
+void GameCenterPlugin::deleteSavedGame(String save_name) {
+	delete_game(save_name);
 }
 
 void GameCenterPlugin::load_top_scores(String leaderboard_id, String time_span, String collection, int limit, bool force_reload) {
@@ -435,6 +595,30 @@ void GameCenterPlugin::notify_sign_in_failed(int status_code, const String &mess
 
 void GameCenterPlugin::notify_player_info_loaded(const String &player_id, const String &player_name) {
 	emit_signal(PLAYER_INFO_LOADED_SIGNAL, player_id, player_name);
+}
+
+void GameCenterPlugin::notify_load_game_success(const String &save_name, const String &data) {
+	emit_signal(LOAD_GAME_SUCCESS_SIGNAL, save_name, data);
+}
+
+void GameCenterPlugin::notify_load_game_failed(const String &save_name, int status_code, const String &message) {
+	emit_signal(LOAD_GAME_FAILED_SIGNAL, save_name, status_code, message);
+}
+
+void GameCenterPlugin::notify_save_game_success(const String &save_name) {
+	emit_signal(SAVE_GAME_SUCCESS_SIGNAL, save_name);
+}
+
+void GameCenterPlugin::notify_save_game_failed(const String &save_name, int status_code, const String &message) {
+	emit_signal(SAVE_GAME_FAILED_SIGNAL, save_name, status_code, message);
+}
+
+void GameCenterPlugin::notify_delete_game_success(const String &save_name) {
+	emit_signal(DELETE_GAME_SUCCESS_SIGNAL, save_name);
+}
+
+void GameCenterPlugin::notify_delete_game_failed(const String &save_name, int status_code, const String &message) {
+	emit_signal(DELETE_GAME_FAILED_SIGNAL, save_name, status_code, message);
 }
 
 void GameCenterPlugin::notify_leaderboard_submit_success(const String &leaderboard_id) {

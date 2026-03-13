@@ -9,6 +9,7 @@ This directory contains the native Godot iOS bridge for `GodotGameCenter`.
 - leaderboard score submission
 - leaderboard top-score loading
 - leaderboard player-score loading
+- `GKSavedGame` load/save/delete helpers for iCloud-backed saved-game slots
 - iOS 14.0 minimum build target
 
 ## Build Dependency
@@ -34,3 +35,4 @@ Implementation notes:
 
 - Uses narrow GameKit imports instead of the umbrella header to avoid symbol collisions with Godot headers.
 - Uses `loadLeaderboardsWithIDs` before top/player score reads so the consuming project can provide leaderboard IDs directly.
+- Saved-game methods are exposed as simple slot-name operations so consuming projects can mirror Android snapshot-style APIs.
