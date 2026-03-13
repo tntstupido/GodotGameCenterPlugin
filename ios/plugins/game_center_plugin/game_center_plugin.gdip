@@ -1,0 +1,22 @@
+[config]
+name="GodotGameCenter"
+binary="GodotGameCenter.xcframework"
+use_swift_runtime=false
+initialization="init_game_center_plugin"
+deinitialization="deinit_game_center_plugin"
+
+[dependencies]
+linked=[]
+embedded=[]
+system=[
+	"Foundation.framework",
+	"GameKit.framework",
+	"UIKit.framework"
+]
+files=[]
+linker_flags=[
+	"-ObjC"
+]
+
+[plist]
+
